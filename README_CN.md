@@ -50,7 +50,7 @@ CodeChronicle 是一个现代化的、本地优先的代码笔记与标注工具
 
 3. **启动本地服务器**
    ```bash
-   npm start
+   npm run dev
    ```
    在浏览器中打开 [http://localhost:3000](http://localhost:3000) 即可使用。
 
