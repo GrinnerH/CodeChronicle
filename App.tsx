@@ -8,7 +8,7 @@ import { NoteArea } from './components/NoteArea';
 import { TopBar } from './components/TopBar';
 import { FileNode, Note, FileType } from './types';
 import { SAMPLE_FILE_TREE, MOCK_NOTES } from './constants';
-import { fetchRepoContents, fetchFileContent } from './services/githubService';
+import { cloneRepoToDirectory, fetchFileContent } from './services/githubService';
 import { readDirectoryRecursive, loadNotesFromConfig, saveNotesToConfig, readFileText, writeFileText } from './services/fileHandleService';
 import JSZip from 'jszip';
 
@@ -48,6 +48,7 @@ function App() {
   // We manage 'files' and 'notes' differently based on mode
   const [files, setFiles] = useState<FileNode[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [cloneRootHandle, setCloneRootHandle] = useState<FileSystemDirectoryHandle | null>(null);
 
   // LocalStorage backups (Used only when !isLocalMode)
   const [lsFiles, setLsFiles] = useLocalStorage<FileNode[]>('cc-files', SAMPLE_FILE_TREE);
@@ -127,6 +128,23 @@ function App() {
   const codeHeight = lineCount * 24 + 32; 
 
   // --- Handlers ---
+
+  const ensureCloneRoot = async (): Promise<FileSystemDirectoryHandle> => {
+    if (cloneRootHandle) return cloneRootHandle;
+
+    if (!('showDirectoryPicker' in window)) {
+        throw new Error("Your browser does not support the File System Access API. Please use Chrome or Edge.");
+    }
+
+    const baseHandle = await (window as any).showDirectoryPicker({ id: 'codechronicle-clones', mode: 'readwrite' });
+    const cloneFolder = await baseHandle.getDirectoryHandle('CodeChronicle-Clones', { create: true });
+    const perm = await cloneFolder.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+        throw new Error("Permission denied to write into selected folder");
+    }
+    setCloneRootHandle(cloneFolder);
+    return cloneFolder;
+  };
 
   const handleToggleMode = () => {
     setIsReadOnly(!isReadOnly);
@@ -300,14 +318,8 @@ function App() {
   const handleGitClone = async (repoString: string) => {
     if (isReadOnly) return;
     
-    // Force Demo Mode for Git Clone
-    if (isLocalMode) {
-        setIsLocalMode(false);
-        setWorkspaceName(null);
-        setRootHandle(null);
-    }
-
     const promise = async () => {
+        const cloneFolder = await ensureCloneRoot();
         const cleanStr = repoString.trim().replace(/\/$/, '').replace(/\.git$/, '');
         const gitUrlRegex = /(?:github\.com\/|^)([^\/]+)\/([^\/]+)$/;
         const match = cleanStr.match(gitUrlRegex);
@@ -317,15 +329,14 @@ function App() {
         const owner = match[1];
         const repo = match[2];
 
-        const fetchedFiles = await fetchRepoContents(owner, repo);
-        const rootFolder: FileNode = {
-          id: `repo-${owner}-${repo}`,
-          name: repo,
-          type: FileType.FOLDER,
-          isOpen: true,
-          children: fetchedFiles
-        };
-        setFiles([rootFolder]);
+        const repoHandle = await cloneRepoToDirectory(owner, repo, cloneFolder);
+        const nodes = await readDirectoryRecursive(repoHandle);
+        const loadedNotes = await loadNotesFromConfig(repoHandle);
+        setRootHandle(repoHandle);
+        setFiles(nodes);
+        setNotes(loadedNotes);
+        setWorkspaceName(`${owner}/${repo}`);
+        setIsLocalMode(true);
         setActiveFileId('');
         return `${owner}/${repo}`;
     };

@@ -30,6 +30,19 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const decorationsRef = useRef<string[]>([]);
   const monaco = useMonaco();
 
+  // Disable Monaco diagnostics to remove red underlines
+  useEffect(() => {
+    if (!monaco) return;
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+    });
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: true,
+    });
+  }, [monaco]);
+
   const handleEditorDidMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor;
 
@@ -149,6 +162,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         options={{
           readOnly: isReadOnly,
           domReadOnly: isReadOnly,
+          quickSuggestions: false,
+          lightbulb: { enabled: false },
+          hover: { enabled: false },
           minimap: { enabled: false },
           fontSize: 14,
           fontFamily: "'JetBrains Mono', monospace",

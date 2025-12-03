@@ -1,6 +1,18 @@
 import { FileNode, FileType } from "../types";
+import { writeFileText } from "./fileHandleService";
 
 const GITHUB_API_BASE = "https://api.github.com/repos";
+const FETCH_TIMEOUT_MS = 20000;
+
+const fetchWithTimeout = async (url: string, options: RequestInit = {}, timeout = FETCH_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+};
 
 // Helper to convert GitHub API response to our FileNode structure
 const mapGitHubNode = (node: any, parentId: string | null = null): FileNode => {
@@ -20,7 +32,7 @@ const mapGitHubNode = (node: any, parentId: string | null = null): FileNode => {
 export const fetchRepoContents = async (owner: string, repo: string, path: string = ''): Promise<FileNode[]> => {
   try {
     const url = `${GITHUB_API_BASE}/${owner}/${repo}/contents/${path}`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     
     if (!response.ok) {
       if (response.status === 404) {
@@ -59,11 +71,43 @@ export const fetchRepoContents = async (owner: string, repo: string, path: strin
 
 export const fetchFileContent = async (downloadUrl: string): Promise<string> => {
     try {
-        const response = await fetch(downloadUrl);
+        const response = await fetchWithTimeout(downloadUrl);
         if (!response.ok) throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
         return await response.text();
     } catch (e) {
         console.error("Fetch content error:", e);
         throw e;
     }
+};
+
+/**
+ * Clone a GitHub repo into a directory handle by walking the contents API and writing files.
+ */
+export const cloneRepoToDirectory = async (
+    owner: string,
+    repo: string,
+    targetDir: FileSystemDirectoryHandle
+): Promise<FileSystemDirectoryHandle> => {
+    const repoFolder = await targetDir.getDirectoryHandle(repo, { create: true });
+    const perm = await repoFolder.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') {
+        throw new Error('Write permission denied for clone target');
+    }
+
+    const processPath = async (dirHandle: FileSystemDirectoryHandle, path: string = '') => {
+        const entries = await fetchRepoContents(owner, repo, path);
+        for (const entry of entries) {
+            if (entry.type === FileType.FOLDER) {
+                const childDir = await dirHandle.getDirectoryHandle(entry.name, { create: true });
+                await processPath(childDir, entry.path);
+            } else if (entry.type === FileType.FILE && entry.downloadUrl) {
+                const content = await fetchFileContent(entry.downloadUrl);
+                const fileHandle = await dirHandle.getFileHandle(entry.name, { create: true });
+                await writeFileText(fileHandle as FileSystemFileHandle, content);
+            }
+        }
+    };
+
+    await processPath(repoFolder);
+    return repoFolder;
 };
