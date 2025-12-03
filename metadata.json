@@ -1,0 +1,5 @@
+{
+  "name": "CodeChronicle",
+  "description": "A local-first code annotation tool combining a VSCode-style explorer, syntax-highlighted editor, and split-pane markdown notes with visual connectors.",
+  "requestFramePermissions": []
+}
